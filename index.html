@@ -516,7 +516,7 @@ function jdText(j){const L=[];L.push('*'+(j.titulo||'')+'*');
 VIEWS.jds=()=>{const q=norm(UI.jdQ||'');
   const L=S.jds.filter(j=>!q||norm(Object.values(j).join(' ')).includes(q)).sort((a,b)=>String(a.titulo).localeCompare(String(b.titulo)));
   const sin=myVacs().filter(v=>v.hcPend>0&&!jdsFor(v).length);
-  return`<div class="top"><div><h1>Job descriptions</h1><div class="sub">${S.jds.length} JDs guardados</div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="ceipalJD">Importar de CEIPAL</button><button class="btn pri" data-act="new" data-c="jds">+ Nuevo JD</button></div></div>
+  return`<div class="top"><div><h1>Job descriptions</h1><div class="sub">${S.jds.length} JDs guardados</div></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="ceipalJD">Importar job (F001 / CEIPAL)</button><button class="btn pri" data-act="new" data-c="jds">+ Nuevo JD</button></div></div>
   ${sin.length?`<div class="card" style="margin-bottom:16px"><div class="card-h"><h2>Tus vacantes sin JD (${sin.length})</h2><span class="hint">Un JD sirve para todas las vacantes del mismo perfil</span></div>
     <div class="tags" style="display:flex;gap:6px;flex-wrap:wrap">${sin.map(v=>`<button class="chip" style="cursor:pointer" data-act="new" data-c="jds" data-preset="${esc(v.code)}" data-pos="${esc(title(v.pos))}">+ ${esc(v.code)} · ${esc(title(v.pos))}</button>`).join('')}</div></div>`:''}
   <div class="toolbar"><input class="in grow" placeholder="Buscar posición, código, cliente, requisito…" data-q="jdQ" value="${esc(UI.jdQ||'')}"></div>
@@ -544,15 +544,18 @@ let CEIPAL_LAST=null;
 function parseCeipal(txt){
   const L=String(txt||'').replace(/\r/g,'').split('\n').map(x=>x.trim());
   const NA=v=>!v||/^(n\/?a|select|none|-)$/i.test(v);
-  const val=label=>{const i=L.findIndex(x=>norm(x)===norm(label));if(i<0)return'';for(let k=i+1;k<Math.min(i+3,L.length);k++){if(L[k])return NA(L[k])?'':L[k]}return''};
+  const nl=x=>norm(x).replace(/\*\s*$/,'').trim();
+  const val=label=>{const i=L.findIndex(x=>nl(x)===norm(label));if(i<0)return'';for(let k=i+1;k<Math.min(i+3,L.length);k++){if(L[k])return NA(L[k])?'':L[k]}return''};
   const startsVal=pref=>{const i=L.findIndex(x=>norm(x).startsWith(norm(pref)));if(i<0)return'';for(let k=i+1;k<Math.min(i+3,L.length);k++){if(L[k])return NA(L[k])?'':L[k]}return''};
   const o={};
   const head=L.find(x=>/JPC\s*-?\s*\d+/i.test(x))||'';const m=/(JPC\s*-?\s*\d+)\s*-\s*(.+)/i.exec(head);
   if(m){o.codigos=codeOf(m[1]);o.titulo=title(m[2].trim())}
+  if(!o.codigos){const c=val('Job Code');if(c)o.codigos=codeOf(c)}
+  {const t=val('Position Name');if(t)o.titulo=title(t)}
   if(!o.titulo){const t=val('Job Title');if(t)o.titulo=title(t)}
-  const other=val('Other Countries'),mainC=startsVal('Search Within Selected Locations');
+  let other=val('Other Countries');if(/selected$/i.test(other))other='';const mainC=startsVal('Search Within Selected Locations')||(val('Main Country')!=='Other Countries'?val('Main Country'):'');
   o.pais=other||mainC||'';
-  o.horario=startsVal('Shift');
+  o.horario=startsVal('Shift');{const h=val('Required Hours/Week'),ct=val('Contract type');const ex=[ct,h&&h+' h/semana'].filter(Boolean).join(', ');if(ex)o.horario=(o.horario?o.horario+' · ':'')+ex}
   const lvl=startsVal('Level ( per each language')||startsVal('Level (per each language');if(lvl)o.ingles=lvl.replace(/\s*\(.*\)\s*/,'').trim()+(/\((.*)\)/.exec(lvl)?' ('+/\((.*)\)/.exec(lvl)[1]+')':'');
   o.salario=val('Recommended Salary');
   o.seniority=val('Category (ScoreCard)');
@@ -561,32 +564,121 @@ function parseCeipal(txt){
   const acad=startsVal('Academic degrees');if(acad)req.push('Formación / herramientas: '+acad);
   if(o.ingles)req.push('Inglés '+o.ingles);
   const crit=L.findIndex(x=>norm(x)==='search criteria');
+  const skl=L.find(x=>/\s{2}x\S/.test(x)||/\s{2}x$/.test(x));
+  if(crit<0&&skl){const sk=skl.split(/\s+x(?=\S|$)/).map(x=>x.trim()).filter(Boolean);if(sk.length)req.push('Competencias: '+sk.map(x=>(x.charAt(0).toUpperCase()+x.slice(1).toLowerCase()).replace(/\b(kpi|sla|qa)\b/gi,w=>w.toUpperCase())).join(', '))}
   if(crit>=0){const q=L[crit+1]||'';const sk=[...q.matchAll(/\(\s*"?\s*([^()"]+?)\s*"?\s*\)/g)].map(x=>x[1].trim()).filter(Boolean);
     if(sk.length)req.push('Competencias: '+sk.map(x=>(x.charAt(0)+x.slice(1).toLowerCase()).replace(/\b(kpi|sla|qa)\b/gi,w=>w.toUpperCase())).join(', '))}
   o.requisitos=req.map(x=>'- '+x).join('\n');
   const fil=[];const vid=startsVal('Applicant video required');if(vid)fil.push('Video del candidato: '+vid);
   const visa=startsVal('U.S. visa or passport');if(visa)fil.push('Visa / pasaporte EE. UU.: '+visa);
   o.filtros=fil.map(x=>'- '+x).join('\n');
-  const notas=[];[['Hiring Manager','Hiring manager'],['Headcount requested','HC solicitado'],['Is this a replacement?','¿Es reemplazo?'],['The position reports to what position?','Reporta a'],['Industries','Industria'],['Account SubDepartment','Sub-departamento'],['Profile Observation or comments','Observaciones del perfil']].forEach(([k,l])=>{const v=val(k);if(v)notas.push(l+': '+v)});
+  const notas=[];[['Hiring Manager','Hiring manager'],['Headcount requested','HC solicitado'],['Is this a replacement?','¿Es reemplazo?'],['The position reports to what position?','Reporta a'],['Industries','Industria'],['Account SubDepartment','Sub-departamento'],['Profile Observation or comments','Observaciones del perfil'],['What is your estimated or projected start date to begin training your Solvo hires?','Inicio de training'],['Career Portal Published Date','Publicado en career portal']].forEach(([k,l])=>{const v=val(k);if(v)notas.push(l+': '+v)});
   o.notas=notas.join('\n');
-  // descripción si viene pegada
-  const d=L.findIndex(x=>/^(job description|description|descripci[oó]n del cargo|descripci[oó]n)$/i.test(x));
-  if(d>=0){const out=[];for(let k=d+1;k<L.length&&out.length<60;k++){if(/^(job details|search criteria|notes|documents)$/i.test(L[k]))break;out.push(L[k])}const t=out.join('\n').trim();if(t)o.responsabilidades=t}
+  // ---- descripción del cargo ----
+  const STOP=/^(add public job details|job details|search criteria|notes|documents( add)?|submissions|skills|attachments|client type|headcount requested|organizational information.*|responsible team|string builder|location details|filters|generate string with copilot|showing .*entries.*)$/i;
+  const DESC=/^(public\s+)?(job\s+)?(description|descripci[oó]n)(\s+(del|de la)\s+(cargo|puesto|rol|vacante|posici[oó]n))?\s*:?$|^(job|position|role)\s+(summary|overview)\s*:?$|^(summary|overview|about (the|this) (role|job|position))\s*:?$|^resumen( del (rol|cargo|puesto))?\s*:?$/i;
+  let block=[];const di=L.findIndex(x=>DESC.test(x));
+  if(di>=0){for(let k=di+1;k<L.length;k++){if(STOP.test(L[k]))break;block.push(L[k])}}
+  else{ // sin título: tomar los párrafos largos (prosa) del texto
+    const isProse=x=>x.length>=70&&x.split(/\s+/).length>=10&&!/[?@]/.test(x)&&!/^\(/.test(x);
+    const a0=L.findIndex(isProse);
+    if(a0>=0){for(let k=a0;k<L.length;k++){if(STOP.test(L[k]))break;block.push(L[k])}}}
+  if(block.join('').trim()){
+    const SUB=[['responsabilidades',/^(key\s+)?(responsibilit(y|ies)|duties|main duties|what you('|’)?ll do|what you will do|key (tasks|activities|functions)|funciones|responsabilidades|actividades|tus funciones)/i],
+               ['requisitos',/^(requirements?|qualifications?|what we('|’)?re looking for|what we are looking for|must[- ]haves?|you have|skills( required)?|requisitos|perfil|lo que buscamos|nice to have)/i],
+               ['beneficios',/^(benefits?|perks|what we offer|we offer|beneficios|ofrecemos|lo que ofrecemos|compensation)/i]];
+    const parts={resumen:[],responsabilidades:[],requisitos:[],beneficios:[]};let cur='resumen';
+    block.forEach(x=>{const h=x.length<70&&SUB.find(([,re])=>re.test(x.replace(/^[^\w¿¡]+/,'')));if(h){cur=h[0];const rest=x.replace(/^[^:]*:\s*/,'');if(rest&&rest!==x&&rest.length>3)parts[cur].push(rest);return}parts[cur].push(x)});
+    const clean=arr=>arr.join('\n').replace(/\n{3,}/g,'\n\n').trim();
+    if(clean(parts.resumen))o.resumen=clean(parts.resumen);
+    if(clean(parts.responsabilidades))o.responsabilidades=clean(parts.responsabilidades);
+    if(clean(parts.beneficios))o.beneficios=clean(parts.beneficios);
+    if(clean(parts.requisitos))o.requisitos=clean(parts.requisitos)+(o.requisitos?'\n'+o.requisitos:'')}
+  if(!o.resumen&&o.titulo){const ind=(val('Industries')||'').replace(/^[A-Z]-[A-Z]+\s*\(?|\)$/g,'').trim();
+    o.resumen=`Buscamos ${o.seniority?'un/a '+o.titulo+' ('+o.seniority+')':'un/a '+o.titulo}${ind?' para una cuenta del sector '+ind:''}${o.pais?', para '+o.pais:''}.`+(o.horario?` Horario: ${o.horario}.`:'')+(o.ingles?` Inglés ${o.ingles}.`:'')+(exp?` Experiencia requerida: ${exp}.`:'');o._resumenAuto=1}
   Object.keys(o).forEach(k=>{if(!o[k])delete o[k]});
   return o}
-function ceipalModal(){openModal(`<div class="sheet"><div class="sheet-h"><h2>Importar job de CEIPAL</h2><button class="btn ghost" data-act="close">✕</button></div>
-  <div class="sheet-b"><ol class="steps small" style="margin-top:0"><li>Abre el job en CEIPAL.</li><li>Ctrl+A y Ctrl+C (o descarga el resumen en .txt).</li><li>Pégalo aquí o sube el archivo.</li></ol>
+/* ---- correo F001 ---- */
+function htmlToText(h){h=String(h).replace(/<(style|script|head)[\s\S]*?<\/\1>/gi,'').replace(/<br\s*\/?>|<\/(p|div|tr|li|h\d)>/gi,'\n').replace(/<\/td>/gi,' | ').replace(/<[^>]+>/g,'');
+  const t=document.createElement('textarea');t.innerHTML=h;return t.value.replace(/[ \t ]+/g,' ').replace(/\n\s*\n+/g,'\n').trim()}
+function msgToText(buf){
+  if(typeof XLSX==='undefined'||!XLSX.CFB)throw new Error('lector');
+  const c=XLSX.CFB.read(new Uint8Array(buf),{type:'array'});
+  const get=n=>{const i=c.FullPaths.findIndex(p=>p.replace(/^Root Entry\//,'')===n);return i>=0?c.FileIndex[i].content:null};
+  const subj=get('__substg1.0_0037001F');const S0=subj?new TextDecoder('utf-16le').decode(new Uint8Array(subj)):'';
+  let h=get('__substg1.0_10130102');
+  if(h){h=new Uint8Array(h);const head=new TextDecoder('latin1').decode(h.slice(0,3000));const m=/charset=["']?([\w-]+)/i.exec(head);let enc=(m&&m[1]||'utf-8').toLowerCase();
+    let t;try{t=new TextDecoder(enc).decode(h)}catch(e){t=new TextDecoder('utf-8').decode(h)}return S0+'\n'+htmlToText(t)}
+  const b=get('__substg1.0_1000001F');if(b)return S0+'\n'+new TextDecoder('utf-16le').decode(new Uint8Array(b));
+  throw new Error('vacío')}
+function emlToText(t){let body=t;const i=t.search(/\r?\n\r?\n/);if(i>0)body=t.slice(i);
+  if(/quoted-printable/i.test(t))body=body.replace(/=\r?\n/g,'').replace(/=([0-9A-F]{2})/gi,(m,h)=>String.fromCharCode(parseInt(h,16)));
+  try{body=decodeURIComponent(escape(body))}catch(e){}
+  return /<html|<div|<p[\s>]/i.test(body)?htmlToText(body):body}
+const F001K=["Client Code","Client Name","Position Title","Industry","Department","SubDepartment","Account's line of work","Number of Positions","Country","City","Location","Position type","Is this position required to fill a position of an employee in PTL?","CDP","SOLID","This position will be recruited from the recruiter or Schedule's schools?","Staff Position","Approved by","Staff department","Experience Level","Shift days, hours and time zone","English required","Level of study required","Hiring manager name","Hiring manager email","Hiring manager number","First BC","Second BC","OPS Director","Desired start date","Job description","Responsabilities","Responsibilities","Skills and qualifications - Hard and soft skills","Vensure and divisional partner?","Who is requesting the vacancy?","Who approves the vacancy?","Vacancy could be recruited from another city","Workday","Weekly hours of work","Comments and notes","Salary","Salary range","Benefits"];
+const MULTI=new Set(["Country","Job description","Responsabilities","Responsibilities","Skills and qualifications - Hard and soft skills","Comments and notes","Benefits"]);
+const isF001=t=>/Request Contents|Position Title\s*:|New F001/i.test(t);
+function parseF001(txt){
+  let T=String(txt).replace(/\r/g,'');const rc=T.search(/Request Contents/i);const sec=rc>=0?T.slice(rc):T;
+  const esc2=x=>x.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const hits=[];F001K.forEach(k=>{const re=new RegExp('(^|\\n)[ \\t]*'+esc2(k)+'[ \\t]*:','gi');let m;while((m=re.exec(sec))){hits.push({k,start:m.index+m[1].length,vs:m.index+m[0].length});break}});
+  hits.sort((a,b)=>a.start-b.start);
+  const F={};hits.forEach((h,i)=>{let v=sec.slice(h.vs,i+1<hits.length?hits[i+1].start:undefined);
+    v=v.split(/\n(?:From|De|Regards|Saludos|Best regards)\s*:?/i)[0];
+    if(!MULTI.has(h.k)){const lines=v.split('\n');v=lines[0].trim()?lines[0]:(lines[1]||'')}
+    F[h.k]=v.replace(/\s*\n\s*/g,' ').replace(/\s{2,}/g,' ').trim()});
+  const NA=v=>!v||/^(none|n\/?a|null|-|\[\])$/i.test(v);const g=k=>NA(F[k])?'':F[k];
+  const sent=t=>String(t||'').split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])/).map(x=>x.trim()).filter(Boolean);
+  const o={};
+  const req=/REQ ID\s*:\s*(JPC\s*-?\s*\d+)/i.exec(T)||/(JPC\s*-\s*\d{3,5})/i.exec(T);if(req)o.codigos=codeOf(req[1]);
+  const v=o.codigos&&allVacs().find(x=>x.code===o.codigos);
+  o.titulo=v?title(v.pos):title(g('Position Title'));
+  const ind=g('Industry').replace(/^[A-Z]-[A-Z]+\s*\(?|\)$/g,'').trim();
+  o.cliente=[g('Client Name'),ind].filter(Boolean).join(' · ');
+  // países
+  let cs=[];try{cs=JSON.parse(g('Country')||'[]')}catch(e){cs=g('Country').split(/[,;]/)}
+  const byC={};cs.map(x=>String(x).trim()).filter(Boolean).forEach(x=>{const [c,ci]=x.split(/\s+-\s+/);(byC[c]=byC[c]||[]);if(ci)byC[c].push(ci)});
+  o.pais=Object.entries(byC).map(([c,ci])=>ci.length?`${c} (${ci.join(', ')})`:c).join(' · ')||(v&&v.country)||'';
+  o.horario=[g('Shift days, hours and time zone'),g('Workday'),g('Weekly hours of work')].filter((x,i,a)=>x&&a.indexOf(x)===i).join(' · ');
+  o.ingles=g('English required');o.salario=g('Salary')||g('Salary range');
+  const exp=g('Experience Level');o.seniority=exp.replace(/\s*\(.*\)/,'').trim();
+  // descripción
+  o.resumen=g('Job description');
+  let R0=g('Responsabilities')||g('Responsibilities');let quals='',attrs='';
+  const qi=R0.search(/\bQualifications\s*:/i);const ai=R0.search(/\bAttributes\s*:/i);
+  if(ai>=0){attrs=R0.slice(ai).replace(/^Attributes\s*:\s*/i,'');R0=R0.slice(0,ai)}
+  if(qi>=0&&(ai<0||qi<ai)){quals=R0.slice(qi).replace(/^Qualifications\s*:\s*/i,'');R0=R0.slice(0,qi)}
+  R0=R0.replace(/^\s*Key Responsibilities\s*:\s*/i,'').trim();
+  if(R0){const topics=R0.split(/(?<=[.!?])\s+(?=[A-Z][A-Za-z&\/]+(?:\s+[A-Za-z&\/]+){0,4}:\s)/);
+    o.responsabilidades=topics.map(t=>{const m=/^([A-Z][^:]{1,45}):\s*(.*)$/.exec(t);return m?m[1]+'\n'+sent(m[2]).map(x=>'- '+x).join('\n'):sent(t).map(x=>'- '+x).join('\n')}).join('\n\n')}
+  const at=sent(attrs);const tail=at.filter(x=>/^A successful/i.test(x));
+  if(tail.length)o.resumen=(o.resumen?o.resumen+'\n\n':'')+tail.join(' ');
+  const reqs=[...sent(quals).map(x=>'- '+x)];
+  if(exp)reqs.push('- Experiencia: '+exp);if(o.ingles)reqs.push('- Inglés: '+o.ingles);if(g('Level of study required'))reqs.push('- Estudios: '+g('Level of study required'));
+  const sk=g('Skills and qualifications - Hard and soft skills').split('•').map(x=>x.trim()).filter(Boolean);
+  let rq=reqs.join('\n');
+  if(sk.length)rq+=(rq?'\n\n':'')+'Habilidades:\n'+sk.map(x=>'- '+x).join('\n');
+  const atr=at.filter(x=>!/^A successful/i.test(x));if(atr.length)rq+=(rq?'\n\n':'')+'Atributos:\n'+atr.map(x=>'- '+x).join('\n');
+  o.requisitos=rq;o.beneficios=g('Benefits');
+  const N=[];[['Hiring manager name','Hiring manager'],['Hiring manager email','Email HM'],['OPS Director','OPS Director'],['Who is requesting the vacancy?','Solicitado por'],['Number of Positions','Posiciones'],['Position type','Tipo'],['Desired start date','Fecha de inicio deseada'],['Vacancy could be recruited from another city','Se puede reclutar desde otra ciudad'],['Comments and notes','Comentarios']].forEach(([k,l])=>{if(g(k))N.push(l+': '+g(k))});
+  o.notas=N.join('\n');
+  Object.keys(o).forEach(k=>{if(!o[k])delete o[k]});return o}
+
+function ceipalModal(){openModal(`<div class="sheet"><div class="sheet-h"><h2>Importar job (CEIPAL o correo F001)</h2><button class="btn ghost" data-act="close">✕</button></div>
+  <div class="sheet-b"><p class="small muted" style="margin-top:0"><b>Lo más completo:</b> sube el correo del F001 (el .msg que descargas de Outlook) o copia y pega el texto del correo. También sirve el resumen del job copiado de CEIPAL.</p>
   <textarea class="in" id="ceipalTxt" rows="9" placeholder="Pega aquí el resumen del job (Ctrl+V)"></textarea>
-  <div style="margin-top:8px"><label class="btn sm" style="cursor:pointer">Subir .txt<input type="file" accept=".txt,.text" id="ceipalFile" hidden></label></div>
+  <div style="margin-top:8px"><label class="btn sm" style="cursor:pointer">Subir archivo (.msg, .eml o .txt)<input type="file" accept=".msg,.eml,.txt,.text,.htm,.html" id="ceipalFile" hidden></label></div>
   <div id="ceipalOut"></div></div>
   <div class="sheet-f"><span></span><button class="btn pri" data-act="ceipalRead">Leer datos</button></div></div>`);
-  $('#ceipalFile').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;$('#ceipalTxt').value=await f.text();ceipalPreview($('#ceipalTxt').value)});
+  $('#ceipalFile').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;
+    try{let t;if(/\.msg$/i.test(f.name))t=msgToText(await f.arrayBuffer());else if(/\.eml$/i.test(f.name))t=emlToText(await f.text());else if(/\.html?$/i.test(f.name))t=htmlToText(await f.text());else t=await f.text();
+      $('#ceipalTxt').value=t;ceipalPreview(t)}catch(err){console.error(err);toast(String(err.message)==='lector'?'No cargó el lector de archivos. Revisa tu conexión.':'No pude leer ese archivo. Copia y pega el texto del correo.')}});
   $('#ceipalTxt').addEventListener('paste',()=>setTimeout(()=>{if($('#ceipalTxt').value.trim())ceipalPreview($('#ceipalTxt').value)},50))}
-function ceipalPreview(txt){const P=parseCeipal(txt);CEIPAL_LAST=P;
+function ceipalPreview(txt){const P=isF001(txt)?parseF001(txt):parseCeipal(txt);CEIPAL_LAST=P;
   if(!P.titulo&&!P.codigos){$('#ceipalOut').innerHTML='<p class="small" style="color:var(--red)">No encontré el job code ni el título. Revisa que copiaste la página del job.</p>';return}
-  const lab={titulo:'Posición',codigos:'Job code',cliente:'Cliente',pais:'País(es)',horario:'Horario',ingles:'Inglés',salario:'Salario',seniority:'Seniority',requisitos:'Requisitos',filtros:'Preguntas filtro',notas:'Notas del HM',responsabilidades:'Responsabilidades'};
+  const lab={titulo:'Posición',codigos:'Job code',cliente:'Cliente',pais:'País(es)',horario:'Horario',ingles:'Inglés',salario:'Salario',seniority:'Seniority',resumen:'Resumen del rol',responsabilidades:'Responsabilidades',requisitos:'Requisitos',beneficios:'Beneficios',filtros:'Preguntas filtro',notas:'Notas del HM'};
   const ex=S.jds.find(j=>jdCodes(j).includes(P.codigos));
-  $('#ceipalOut').innerHTML=`<h3 style="margin-top:16px">Esto encontré</h3><div class="tbl-wrap"><table><tbody>${Object.keys(lab).filter(k=>P[k]).map(k=>`<tr><td class="small muted nowrap" style="width:130px">${lab[k]}</td><td class="small jdtxt">${esc(P[k])}</td></tr>`).join('')}</tbody></table></div>
+  $('#ceipalOut').innerHTML=`${P._resumenAuto?'<p class="small" style="color:var(--yellow);margin-top:14px">⚠️ El texto no traía la descripción del cargo, así que armé el resumen con los datos del job. Para tener la descripción completa, sube el correo del F001.</p>':''}${!P.codigos?'<p class="small muted" style="margin-top:14px">No encontré el job code (JPC) en el texto: escríbelo en el siguiente paso.</p>':''}<h3 style="margin-top:16px">Esto encontré</h3><div class="tbl-wrap"><table><tbody>${Object.keys(lab).filter(k=>P[k]).map(k=>`<tr><td class="small muted nowrap" style="width:130px">${lab[k]}</td><td class="small jdtxt">${esc(P[k])}</td></tr>`).join('')}</tbody></table></div>
    <p class="small muted">${ex?'Ya tienes un JD para este código: solo voy a llenar los campos que estén vacíos.':'En el siguiente paso puedes revisar y completar (responsabilidades, salario, beneficios) antes de guardar.'}</p>`;
   const f=$('#modal .sheet-f');f.innerHTML=`<button class="btn" data-act="ceipalRead">Volver a leer</button><button class="btn pri" data-act="ceipalUse">${ex?'Completar JD':'Crear JD con estos datos'}</button>`}
 
@@ -912,7 +1004,7 @@ document.addEventListener('click',e=>{
     jd:()=>jdModal(id),
     ceipalJD:ceipalModal,
     ceipalRead:()=>ceipalPreview($('#ceipalTxt').value),
-    ceipalUse:()=>{const P=CEIPAL_LAST;if(!P)return;const ex=S.jds.find(j=>jdCodes(j).includes(P.codigos));closeModal();PREFILL=P;openForm('jds',ex?ex.id:null);if(ex)toast('Ya tenías un JD para '+P.codigos+': solo llené los campos vacíos')},
+    ceipalUse:()=>{const P=CEIPAL_LAST;if(!P)return;const ex=S.jds.find(j=>jdCodes(j).includes(P.codigos));closeModal();PREFILL=Object.assign({},P);delete PREFILL._resumenAuto;openForm('jds',ex?ex.id:null);if(ex)toast('Ya tenías un JD para '+P.codigos+': solo llené los campos vacíos')},
     copyJD:()=>{const j=S.jds.find(x=>x.id===id);navigator.clipboard.writeText(jdText(j)).then(()=>toast('JD copiado, listo para pegar en WhatsApp o correo'),()=>toast('No pude copiar'))},
     editJD:()=>openForm('jds',id),
     gen:()=>{GEN.tab=a.dataset.tab||'post';genModal(id)},
