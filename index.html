@@ -172,6 +172,11 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .jdc .d{font-size:13px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line}
 .jdc .f{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
 .jdtxt{white-space:pre-line}
+.drop{border:2px dashed var(--line-2);border-radius:var(--r);padding:28px;text-align:center;background:var(--surface);cursor:pointer;transition:.15s}
+.drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop b{font-size:15px}
+.cvbar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.prog{height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin-top:10px}.prog i{display:block;height:100%;background:var(--accent);transition:width .2s}
 details.more{padding:0}
 details.more summary{cursor:pointer;padding:14px 18px;font-weight:700;list-style:none;display:flex;justify-content:space-between;align-items:center}
 details.more summary::-webkit-details-marker{display:none}
@@ -246,7 +251,7 @@ const DEFAULT=()=>({
   rutina:{date:'',done:{}},
   data:{headers:[],rows:[],loadedAt:''},
   notasVac:{},
-  candidatos:[],search:[],entrevistas:[],tareas:[],jds:[],
+  candidatos:[],search:[],entrevistas:[],tareas:[],jds:[],cvs:[],
   equipo:[1,2,3,4,5].map(()=>({id:uid(),apodo:'',nombreData:'',notas:''})),
   skills:[],estrategias:[]
 });
@@ -379,11 +384,11 @@ function profileKey(pos){return norm(pos).toUpperCase().replace(/[^A-Z0-9 ]/g,' 
 
 /* ============ navegación ============ */
 const ROUTES=[
-  ['inicio','Inicio','◐'],['vacantes','Mis vacantes','◆'],['jds','Job descriptions','▤'],['candidatos','Candidatos','●'],
+  ['inicio','Inicio','◐'],['vacantes','Mis vacantes','◆'],['jds','Job descriptions','▤'],['cvs','CVs','▦'],['candidatos','Candidatos','●'],
   ['tareas','Tareas','✓'],['equipo','Mi equipo','☺'],['ajustes','Ajustes','⚙']];
 let route='inicio';
 const UI={vacView:'prio',vacFilter:'all',vacQ:'',grpScope:'mine',candView:'tabla',candQ:'',candVac:'',candStage:'',candInact:false,
-  candTab:'seg',moreOpen:false,jdQ:'',searchQ:'',searchJob:'',tarFilter:'Pendiente',tarWhen:'',teamWho:'all',entQ:''};
+  candTab:'seg',moreOpen:false,jdQ:'',cvQ:'',cvNivel:'',cvPerfil:'',searchQ:'',searchJob:'',tarFilter:'Pendiente',tarWhen:'',teamWho:'all',entQ:''};
 function counts(){const t=today();
   const venc=S.candidatos.filter(c=>isActive(c)&&c.proximoSeg&&c.proximoSeg<t).length;
   const hoy=S.candidatos.filter(c=>isActive(c)&&c.proximoSeg===t).length;
@@ -733,6 +738,162 @@ function genModal(id){const j=S.jds.find(x=>x.id===id);if(!j)return;const txt=ge
    <div class="sheet-f"><button class="btn" data-act="jd" data-id="${id}">← Volver al JD</button><button class="btn pri" data-act="copyGen">Copiar texto</button></div></div>`);
   const ta=$('#genOut');ta.addEventListener('input',()=>{$('#genCount').textContent=ta.value.length+' caracteres'+(lim?' · máx. '+lim:'')})}
 
+/* ============ CVs: leer y clasificar ============ */
+const CVFILES={};let cvBusy=null;
+function loadScript(src){return new Promise((ok,ko)=>{if(document.querySelector(`script[src="${src}"]`)){ok();return}const sc=document.createElement('script');sc.src=src;sc.onload=ok;sc.onerror=()=>ko(new Error('No pude cargar '+src));document.head.appendChild(sc)})}
+const PDFJS='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',PDFW='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',MAMMOTH='https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js';
+async function fileText(f){
+  if(/\.pdf$/i.test(f.name)){await loadScript(PDFJS);pdfjsLib.GlobalWorkerOptions.workerSrc=PDFW;
+    const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await f.arrayBuffer())}).promise;let out='';
+    for(let i=1;i<=Math.min(pdf.numPages,6);i++){const pg=await pdf.getPage(i);const tc=await pg.getTextContent();let lastY=null;
+      tc.items.forEach(it=>{const y=it.transform?Math.round(it.transform[5]):null;if(lastY!==null&&y!==null&&Math.abs(y-lastY)>3)out+='\n';else if(out&&!out.endsWith('\n')&&!out.endsWith(' '))out+=' ';out+=it.str;if(it.hasEOL)out+='\n';lastY=y});out+='\n'}
+    return out}
+  if(/\.docx$/i.test(f.name)){await loadScript(MAMMOTH);const r=await mammoth.extractRawText({arrayBuffer:await f.arrayBuffer()});return r.value}
+  if(/\.(txt|text)$/i.test(f.name))return await f.text();
+  throw new Error('formato')}
+const COUNTRIES={Colombia:['colombia','bogota','medellin','barranquilla','cali','bucaramanga','cartagena','soledad','pereira','manizales','santa marta','cucuta'],
+  'México':['mexico','méxico','cdmx','ciudad de mexico','guadalajara','monterrey','merida','chihuahua','puebla','queretaro','tijuana'],
+  Argentina:['argentina','buenos aires','cordoba','rosario','mendoza','caba'],'Perú':['peru','perú','lima','arequipa','trujillo'],Guatemala:['guatemala'],
+  Kenya:['kenya','nairobi','mombasa'],Filipinas:['philippines','filipinas','manila','cebu','davao'],'El Salvador':['el salvador','san salvador'],'Honduras':['honduras','tegucigalpa'],
+  'República Dominicana':['dominican republic','republica dominicana','santo domingo'],Venezuela:['venezuela','caracas'],Chile:['chile','santiago de chile'],Ecuador:['ecuador','quito','guayaquil']};
+const CEFR=['A1','A2','B1','B2','C1','C2'];
+const SYN={supervisor:['supervisor','team lead','team leader','lider de equipo','líder de equipo','jefe de equipo','coordinador de operaciones','floor supervisor','supervisora','team manager'],
+  operations:['operations','operaciones','call center','contact center','bpo','customer service','servicio al cliente','kpi','sla'],
+  sales:['sales','ventas','sdr','bdr','business development','account executive','vendedor','comercial','lead generation','cold calling'],
+  customer:['customer service','servicio al cliente','customer support','soporte','call center','contact center','agente','asesor','representative'],
+  hr:['human resources','recursos humanos','talento humano','people','hr ','nomina','nómina','payroll','bienestar','hrbp'],
+  recruiter:['recruiter','reclutador','reclutadora','talent acquisition','seleccion','selección','sourcing'],
+  coordinator:['coordinator','coordinador','coordinadora'],trainer:['trainer','formador','capacitador','training'],
+  designer:['designer','diseñador','diseñadora','figma','adobe','photoshop','illustrator'],legal:['legal','paralegal','abogado','lawyer','law firm','litigation']};
+const COMMON_SKILLS=['excel','google sheets','power bi','crm','salesforce','hubspot','zendesk','freshdesk','kpi','sla','coaching','quality assurance','workforce','avaya','genesys','five9','sap','jira','scrum','power point','microsoft office','teams','slack','data analysis','reporting','customer service','leadership','liderazgo','negociación','negotiation','inbound','outbound','chat','email support','technical support','soporte técnico'];
+function parseCV(text,fname){
+  const T=String(text||'').replace(/\r/g,'').replace(/[ \t ]+/g,' ');const L=T.split('\n').map(x=>x.trim()).filter(Boolean);const N=norm(T);
+  const o={archivo:fname};
+  const em=/[\w.+-]+@[\w-]+\.[\w.-]+/.exec(T);if(em)o.email=em[0].replace(/[.,;]$/,'');
+  const ph=(T.match(/\+?\(?\d[\d\s().-]{7,}\d/g)||[]).map(x=>x.trim()).find(x=>x.replace(/\D/g,'').length>=10&&x.replace(/\D/g,'').length<=15&&!/^(19|20)\d\d\s*[-–]\s*(19|20)\d\d$/.test(x));if(ph)o.telefono=ph;
+  const bad=/curr[ií]cul|hoja de vida|resume|^cv$|perfil|profile|contact|datos|email|tel[eé]fono|phone|@|\d{4}/i;
+  const nm=L.slice(0,8).find(x=>!bad.test(x)&&/^[A-Za-zÁÉÍÓÚÑáéíóúñü'. -]{5,50}$/.test(x)&&x.split(/\s+/).length>=2&&x.split(/\s+/).length<=5);
+  o.nombre=nm?title(nm):fname.replace(/\.(pdf|docx|txt)$/i,'').replace(/[_-]+/g,' ').replace(/\b(cv|hv|hoja de vida|resume|curriculum)\b/gi,'').trim();
+  // ubicación
+  let best=null;for(const [c,keys] of Object.entries(COUNTRIES)){for(const k of keys){const i=N.indexOf(k);if(i>=0&&(best===null||i<best.i)){best={c,i,k}}}}
+  if(best){o.pais=best.c;const city=COUNTRIES[best.c].find(k=>k!==norm(best.c)&&N.includes(k));o.ubicacion=city?title(city)+', '+best.c:best.c}
+  // inglés
+  let lvl=-1;const ctx=[];N.replace(/(ingles|english|idiomas|languages)[^\n]{0,120}/g,m=>{ctx.push(m);return m});const C=ctx.join(' ')+' '+(/(bilingual|bilingue)/.test(N)?'bilingue':'');
+  (C.toUpperCase().match(/\b(A1|A2|B1|B2|C1|C2)\b/g)||[]).forEach(x=>lvl=Math.max(lvl,CEFR.indexOf(x)));
+  if(/nativ|native/.test(C))lvl=Math.max(lvl,5);if(/fluent|fluid|fluido|avanzado|advanced|bilingue|bilingual|proficient/.test(C))lvl=Math.max(lvl,4);
+  if(/upper[- ]?intermediate|intermedio[- ]alto|intermedio avanzado/.test(C))lvl=Math.max(lvl,3);else if(/intermedi/.test(C))lvl=Math.max(lvl,2);if(/basic|basico/.test(C))lvl=Math.max(lvl,1);
+  const pct=/(ingles|english)[^\n]{0,40}?(\d{2,3})\s*%/.exec(N);if(pct){const v=+pct[2];lvl=Math.max(lvl,v>=90?4:v>=75?3:v>=60?2:1)}
+  if(lvl>=0)o.ingles=CEFR[lvl];
+  // experiencia
+  const yrs=[...N.matchAll(/(\d{1,2})\+?\s*(anos|años|years|yrs)\s*(de\s*)?(experiencia|experience|of experience)?/g)].map(m=>+m[1]).filter(x=>x<45);
+  const now=new Date().getFullYear();let span=0;const ranges=[...N.matchAll(/((?:19|20)\d{2})\s*(?:-|–|—|a|to|al|hasta)\s*((?:19|20)\d{2}|actual|actualidad|presente|present|current|hoy|now)/g)];
+  ranges.forEach(m=>{const a=+m[1],b=/\d/.test(m[2])?+m[2]:now;if(b>=a&&b-a<40)span+=Math.max(b-a,0.5)});
+  const ex=Math.max(yrs.length?Math.max(...yrs):0,Math.min(span,40));if(ex)o.anios=Math.round(ex*10)/10;
+  // cargos
+  const ROLE=/(supervisor|team lead|team leader|lider|líder|coordinador|coordinator|manager|gerente|jefe|analyst|analista|agent|agente|asesor|representative|specialist|especialista|recruiter|reclutador|assistant|asistente|auxiliar|trainer|director|ejecutivo|executive|consultant|consultor|designer|diseñador|developer|desarrollador|sdr|bdr)/i;
+  o.cargos=[...new Set(L.filter(x=>x.length<=80&&ROLE.test(x)&&!/@/.test(x)&&(x.match(/,/g)||[]).length<3).map(x=>x.replace(/\s{2,}/g,' ')))].slice(0,6).join(' | ');
+  // skills
+  const dict=new Set(COMMON_SKILLS);S.jds.forEach(j=>{const m=/Competencias:\s*([^\n]+)/i.exec(j.requisitos||'');if(m)m[1].split(',').forEach(x=>{x=norm(x);if(x.length>2)dict.add(x)})});
+  o.skills=[...dict].filter(k=>N.includes(norm(k))).slice(0,15).join(', ');
+  o.texto=T.slice(0,3500);
+  return o}
+function cvProfiles(){
+  const P=[];const seen=new Set();
+  S.jds.forEach(j=>{const key=profileKey(j.titulo);seen.add(key);P.push({key,label:j.titulo,codes:jdCodes(j),paises:norm(j.pais||''),ingles:j.ingles||'',kw:norm([j.requisitos,j.responsabilidades,j.resumen].join(' ')),jd:j})});
+  const vs=(myVacs().length?myVacs():allVacs().filter(v=>v.open)).filter(v=>v.hcPend>0);
+  vs.forEach(v=>{const key=profileKey(v.pos);const ex=P.find(p=>p.key===key);if(ex){if(!ex.codes.includes(v.code))ex.codes.push(v.code);if(!ex.paises.includes(norm(v.country)))ex.paises+=' '+norm(v.country+' '+v.other);return}
+    P.push({key,label:title(v.pos),codes:[v.code],paises:norm(v.country+' '+v.other),ingles:'',kw:''})});
+  if(!P.length)[['Operations Supervisor'],['Customer Service Representative'],['Sales Development Representative'],['Human Resources Coordinator'],['Recruiter']].forEach(([l])=>P.push({key:profileKey(l),label:l,codes:[],paises:'',ingles:'',kw:''}));
+  return P}
+function reqLevel(t){t=String(t||'').toUpperCase();const m=/\b(A1|A2|B1|B2|C1|C2)\b/.exec(t);if(m)return CEFR.indexOf(m[1]);const n=/(\d+(?:\.\d)?)\s*(?:TO|A|-)/.exec(t);if(n){const v=+n[1];return v>=9?4:v>=7.5?3:v>=6?2:1}return -1}
+function scoreCV(cv,p){
+  const N=norm(cv.texto+' '+cv.cargos);const why=[];let sc=0;
+  // cargo / perfil (35)
+  const words=p.key.toLowerCase().split(' ').filter(w=>w.length>2);let t=0;
+  const groups=Object.entries(SYN).filter(([k,arr])=>words.some(w=>k.startsWith(w.slice(0,5))||arr.some(a=>norm(a).includes(w))));
+  groups.forEach(([k,arr])=>{if(arr.some(a=>N.includes(norm(a))))t++});
+  const tScore=groups.length?Math.round(35*t/groups.length):(words.every(w=>N.includes(w))?35:0);sc+=tScore;
+  if(tScore>=25)why.push('✓ Experiencia relacionada con '+p.label);else if(tScore>0)why.push('~ Experiencia parcial para '+p.label);else why.push('✗ No veo experiencia como '+p.label);
+  // skills/requisitos (25)
+  let kwList=[];if(p.kw){const m=/competencias:\s*([^\n]+)/.exec(p.kw);if(m)kwList=m[1].split(',').map(x=>x.trim()).filter(x=>x.length>3)}
+  if(!kwList.length)kwList=[...new Set([].concat(...groups.map(([k,a])=>a)))];
+  const hit=kwList.filter(k=>N.includes(norm(k)));const ks=kwList.length?Math.min(25,Math.round(25*hit.length/Math.min(kwList.length,8))):0;sc+=ks;
+  if(hit.length)why.push(`✓ ${hit.length} habilidades del perfil (${hit.slice(0,4).join(', ')})`);
+  if(/(call center|contact center|bpo)/.test(N)){sc+=5;why.push('✓ Experiencia en call center / BPO')}
+  // inglés (20)
+  const need=reqLevel(p.ingles),has=cv.ingles?CEFR.indexOf(cv.ingles):-1;
+  if(has<0){sc+=6;why.push('? No encontré nivel de inglés')}
+  else if(need<0){sc+=has>=3?20:has>=2?12:5;why.push('Inglés '+cv.ingles)}
+  else if(has>=need){sc+=20;why.push(`✓ Inglés ${cv.ingles} (pide ${CEFR[need]})`)}
+  else if(has===need-1){sc+=10;why.push(`~ Inglés ${cv.ingles}, pide ${CEFR[need]}`)}
+  else why.push(`✗ Inglés ${cv.ingles}, pide ${CEFR[need]}`);
+  // ubicación (15)
+  if(!cv.pais){sc+=6;why.push('? No encontré ubicación')}
+  else if(!p.paises||p.paises.includes(norm(cv.pais).replace('é','e'))||p.paises.includes(norm(cv.pais))){sc+=15;why.push('✓ Vive en '+cv.pais)}
+  else why.push(`✗ Vive en ${cv.pais}, la vacante es para ${title(p.paises.split(/[,·]/)[0]||'otro país')}`);
+  return{sc:Math.min(100,sc),why}}
+function classifyCV(cv){
+  const P=cvProfiles();const res=P.map(p=>Object.assign({p},scoreCV(cv,p))).sort((a,b)=>b.sc-a.sc);const b=res[0];
+  cv.perfil=b?b.p.label:'';cv.vacante=b&&b.p.codes.length?b.p.codes.join(', '):'';cv.score=b?b.sc:0;
+  cv.nivel=cv.score>=65?'Apto':cv.score>=40?'Revisar':'No apto';cv.motivos=b?b.why.join(' | '):'';
+  cv.alternativas=res.slice(1,3).filter(r=>r.sc>=40).map(r=>`${r.p.label} (${r.sc})`).join(' | ');
+  if(b&&b.sc<40&&/^✗/.test(b.why[0])){cv.perfil='Sin vacante para su perfil';cv.vacante=''}
+  if(!cv.texto||cv.texto.trim().length<80){cv.nivel='Revisar';cv.motivos='? No pude leer texto: puede ser un PDF escaneado (imagen)';cv.score=0}
+  return cv}
+async function handleCVFiles(files){
+  files=[...files].filter(f=>/\.(pdf|docx|txt)$/i.test(f.name));const skipped=[...arguments[0]].length-files.length;
+  if(!files.length){toast('Sube archivos PDF, Word (.docx) o .txt');return}
+  cvBusy={n:files.length,i:0};render();let ok=0,fail=0;
+  for(const f of files){cvBusy.i++;cvBusy.name=f.name;updateBusy();
+    try{const t=await fileText(f);const cv=classifyCV(parseCV(t,f.name));cv.id=uid();cv.fecha=today();cv.estado='Nuevo';
+      const dup=S.cvs.find(x=>(cv.email&&x.email===cv.email)||(norm(x.nombre)===norm(cv.nombre)&&x.archivo===cv.archivo));
+      if(dup){Object.assign(dup,cv,{id:dup.id,estado:dup.estado,notas:dup.notas});CVFILES[dup.id]=URL.createObjectURL(f)}else{S.cvs.unshift(cv);CVFILES[cv.id]=URL.createObjectURL(f)}ok++}
+    catch(e){console.error(e);fail++}}
+  cvBusy=null;save();render();toast(`${ok} CV${ok!==1?'s':''} leído${ok!==1?'s':''}${fail?` · ${fail} no se pudieron leer`:''}${skipped?` · ${skipped} con formato no compatible`:''}`)}
+function updateBusy(){const b=$('#cvBusy');if(b&&cvBusy){b.querySelector('span').textContent=`Leyendo ${cvBusy.i} de ${cvBusy.n}: ${cvBusy.name}`;b.querySelector('i').style.width=(cvBusy.i/cvBusy.n*100)+'%'}}
+const NIV={Apto:'green','Revisar':'yellow','No apto':'red'};
+const inCand=cv=>S.candidatos.some(c=>(cv.email&&c.email===cv.email)||norm(c.candidato)===norm(cv.nombre));
+VIEWS.cvs=()=>{const q=norm(UI.cvQ);
+  const L=S.cvs.filter(c=>(!UI.cvNivel||c.nivel===UI.cvNivel)&&(!UI.cvPerfil||c.perfil===UI.cvPerfil)&&(!q||norm([c.nombre,c.email,c.ubicacion,c.cargos,c.skills,c.perfil].join(' ')).includes(q))).sort((a,b)=>(a.estado==='Descartado')-(b.estado==='Descartado')||b.score-a.score);
+  const perfiles=[...new Set(S.cvs.map(c=>c.perfil).filter(Boolean))];const cnt=n=>S.cvs.filter(c=>c.nivel===n).length;
+  return`<div class="top"><div><h1>CVs</h1><div class="sub">Sube hojas de vida y las leo y clasifico contra tus vacantes y JDs</div></div>${S.cvs.length?`<button class="btn" data-act="cvReclass">Volver a clasificar</button>`:''}</div>
+  <label class="drop" id="cvDrop" style="display:block;margin-bottom:16px"><input type="file" id="cvFiles" accept=".pdf,.docx,.txt" multiple hidden>
+    <b>Arrastra aquí los CVs o haz clic para elegirlos</b><div class="small muted" style="margin-top:4px">PDF o Word (.docx), varios a la vez. Los archivos no se suben a ningún lado: se leen en tu navegador.</div>
+    ${cvBusy?`<div id="cvBusy" style="margin-top:12px"><span class="small">Leyendo…</span><div class="prog"><i style="width:0"></i></div></div>`:''}</label>
+  ${S.cvs.length?`<div class="cvbar"><div class="seg">${[['','Todos '+S.cvs.length],['Apto','Aptos '+cnt('Apto')],['Revisar','Revisar '+cnt('Revisar')],['No apto','No aptos '+cnt('No apto')]].map(([v,l])=>`<button class="${UI.cvNivel===v?'on':''}" data-ui="cvNivel" data-v="${v}">${l}</button>`).join('')}</div>
+    <select class="in" data-sel="cvPerfil"><option value="">Todos los perfiles</option>${perfiles.map(p=>`<option ${UI.cvPerfil===p?'selected':''}>${esc(p)}</option>`).join('')}</select>
+    <input class="in grow" style="flex:1;min-width:180px" placeholder="Buscar nombre, ciudad, cargo, habilidad…" data-q="cvQ" value="${esc(UI.cvQ)}"></div>
+  ${L.length?`<div class="tbl-wrap"><table><thead><tr><th>Clasificación</th><th>Candidato</th><th>Perfil sugerido</th><th class="num">Match</th><th>Inglés</th><th class="num">Años exp.</th><th>Ubicación</th><th></th></tr></thead><tbody>
+   ${L.map(c=>`<tr class="click" data-act="cvView" data-id="${c.id}" style="${c.estado==='Descartado'?'opacity:.5':''}"><td><span class="chip ${NIV[c.nivel]||''}">${esc(c.nivel)}</span>${c.estado!=='Nuevo'?`<div class="small muted" style="margin-top:4px">${esc(c.estado)}</div>`:''}</td>
+    <td><b>${esc(c.nombre)}</b><div class="small muted">${esc(c.email||c.telefono||c.archivo)}</div></td>
+    <td class="small"><b>${esc(c.perfil||'–')}</b><div class="muted">${esc((c.vacante||'').split(', ').slice(0,3).join(', '))}${(c.vacante||'').split(', ').length>3?' +'+((c.vacante||'').split(', ').length-3):''}</div></td>
+    <td class="num"><b>${c.score}</b><div class="bar" style="width:56px;margin-left:auto"><i style="width:${c.score}%"></i></div></td>
+    <td>${esc(c.ingles||'–')}</td><td class="num">${c.anios||'–'}</td><td class="small">${esc(c.ubicacion||'–')}</td>
+    <td class="nowrap">${inCand(c)?'<span class="chip">En seguimiento</span>':`<button class="btn sm" data-act="cvToCand" data-id="${c.id}">→ Candidatos</button>`}</td></tr>`).join('')}</tbody></table></div>`:'<div class="card empty">Ningún CV con esos filtros.</div>'}
+  <p class="small muted">El match (0–100) suma: experiencia en el cargo (35), habilidades del JD (25 + 5 si viene de call center/BPO), inglés vs. lo que pide el JD (20) y que viva en un país de la vacante (15). Apto ≥ 65 · Revisar 40–64 · No apto < 40. Mientras más completos tus JDs, mejor clasifica.</p>`:''}`};
+after.cvs=()=>{const d=$('#cvDrop'),fi=$('#cvFiles');if(!d)return;
+  fi.addEventListener('change',e=>{if(e.target.files.length)handleCVFiles(e.target.files);e.target.value=''});
+  ['dragenter','dragover'].forEach(ev=>d.addEventListener(ev,e=>{e.preventDefault();d.classList.add('over')}));
+  ['dragleave','drop'].forEach(ev=>d.addEventListener(ev,e=>{e.preventDefault();d.classList.remove('over')}));
+  d.addEventListener('drop',e=>{if(e.dataTransfer.files.length)handleCVFiles(e.dataTransfer.files)});updateBusy()};
+function cvModal(id){const c=S.cvs.find(x=>x.id===id);if(!c)return;const f=CVFILES[id];
+  const row=(l,v)=>v?`<tr><td class="small muted nowrap" style="width:130px">${l}</td><td class="small">${esc(v)}</td></tr>`:'';
+  openModal(`<div class="sheet wide"><div class="sheet-h"><div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="chip ${NIV[c.nivel]||''}">${esc(c.nivel)} · ${c.score}</span><h2>${esc(c.nombre)}</h2></div><div class="small muted" style="margin-top:3px">${esc(c.archivo)} · leído ${esc(fmtD(c.fecha))}</div></div><button class="btn ghost" data-act="close">✕</button></div>
+  <div class="sheet-b"><div class="grid g2e">
+   <div><h3>Datos que encontré</h3><div class="tbl-wrap"><table><tbody>${row('Email',c.email)}${row('Teléfono',c.telefono)}${row('Ubicación',c.ubicacion)}${row('Inglés',c.ingles)}${row('Años de experiencia',c.anios)}${row('Cargos',c.cargos&&c.cargos.split(' | ').join(' · '))}${row('Habilidades',c.skills)}</tbody></table></div>
+    ${f?`<a class="btn sm" style="margin-top:10px" href="${f}" target="_blank" rel="noopener">Ver CV original ↗</a>`:'<div class="small muted" style="margin-top:8px">El archivo original solo se puede abrir en la sesión en que lo subiste.</div>'}</div>
+   <div><h3>Por qué lo clasifiqué así</h3><div class="card" style="box-shadow:none;background:var(--surface-2);border-color:transparent"><b>${esc(c.perfil||'Sin perfil')}</b>${c.vacante?` <span class="muted small">${esc(c.vacante)}</span>`:''}<ul style="margin:8px 0 0;padding-left:18px" class="small">${String(c.motivos||'').split(' | ').filter(Boolean).map(m=>`<li>${esc(m)}</li>`).join('')}</ul></div>
+    ${c.alternativas?`<h3 style="margin-top:14px">También podría servir para</h3><div class="small">${esc(c.alternativas.split(' | ').join(' · '))}</div>`:''}
+    <div class="form" style="margin-top:14px"><div class="f wide"><label>Notas</label><textarea class="in" id="cvNotas" rows="3">${esc(c.notas||'')}</textarea></div></div></div></div>
+   <details style="margin-top:14px"><summary class="small" style="cursor:pointer;font-weight:700">Ver texto leído del CV</summary><pre class="code" style="white-space:pre-wrap">${esc(c.texto||'')}</pre></details></div>
+  <div class="sheet-f"><div style="display:flex;gap:8px"><button class="btn danger" data-act="cvDel" data-id="${id}">Eliminar</button><button class="btn" data-act="cvDiscard" data-id="${id}">${c.estado==='Descartado'?'Reactivar':'Descartar'}</button></div>
+   <div style="display:flex;gap:8px"><button class="btn" data-act="cvSaveNote" data-id="${id}">Guardar nota</button>${inCand(c)?'<span class="chip">Ya está en Candidatos</span>':`<button class="btn pri" data-act="cvToCand" data-id="${id}">→ Pasar a Candidatos</button>`}</div></div></div>`)}
+function cvToCand(id){const c=S.cvs.find(x=>x.id===id);if(!c||inCand(c))return;
+  const code=(c.vacante||'').split(',')[0].trim();const v=code&&allVacs().find(x=>x.code===code);
+  S.candidatos.unshift({id:uid(),candidato:c.nombre,vacante:v?v.label:(code?code+' · '+c.perfil:c.perfil||''),telefono:c.telefono||'',email:c.email||'',fuente:'CV',stage:'Contactado',fechaStage:today(),proximoSeg:today(),
+    proximaAccion:'Primer contacto',notas:`CV ${c.nivel} (${c.score}) · ${c.perfil}${c.ingles?' · Inglés '+c.ingles:''}${c.anios?' · '+c.anios+' años exp.':''}${c.ubicacion?' · '+c.ubicacion:''}`});
+  c.estado='En seguimiento';save();toast(`${c.nombre} pasó a Candidatos (para contactar hoy)`)}
+
 /* ============ CONTACTAR CANDIDATOS ============ */
 const CQ={ids:[],i:0,tpl:null,lang:'es',ch:'wa',reg:true,sent:0};
 const TPL=[['primer','Primer contacto'],['agendar','Agendar entrevista'],['recordatorio','Recordatorio de entrevista'],['video','Pedir CV + video'],['seguimiento','Seguimiento'],['noresponde','No responde'],['hm','Avanzó con el HM'],['descarte','Descarte amable']];
@@ -1002,6 +1163,12 @@ document.addEventListener('click',e=>{
     close:closeModal,
     new:()=>openForm(a.dataset.c,null,a.dataset.preset,a.dataset.pos),
     jd:()=>jdModal(id),
+    cvView:()=>cvModal(id),
+    cvToCand:()=>{cvToCand(id);if(!$('#modal').hidden)closeModal();render()},
+    cvDiscard:()=>{const c=S.cvs.find(x=>x.id===id);c.estado=c.estado==='Descartado'?'Nuevo':'Descartado';save();closeModal();render()},
+    cvDel:()=>{if(!confirm('¿Eliminar este CV de la lista?'))return;S.cvs=S.cvs.filter(x=>x.id!==id);save();closeModal();render()},
+    cvSaveNote:()=>{const c=S.cvs.find(x=>x.id===id);c.notas=$('#cvNotas').value.trim();save();toast('Nota guardada')},
+    cvReclass:()=>{S.cvs.forEach(c=>{const keep={id:c.id,fecha:c.fecha,estado:c.estado,notas:c.notas};classifyCV(c);Object.assign(c,keep)});save();render();toast('CVs clasificados de nuevo con tus JDs y vacantes actuales')},
     ceipalJD:ceipalModal,
     ceipalRead:()=>ceipalPreview($('#ceipalTxt').value),
     ceipalUse:()=>{const P=CEIPAL_LAST;if(!P)return;const ex=S.jds.find(j=>jdCodes(j).includes(P.codigos));closeModal();PREFILL=Object.assign({},P);delete PREFILL._resumenAuto;openForm('jds',ex?ex.id:null);if(ex)toast('Ya tenías un JD para '+P.codigos+': solo llené los campos vacíos')},
@@ -1143,7 +1310,7 @@ const GS_CODE=`/**
  * Mari Hub TA · guarda y lee la información de la página en este Google Sheet.
  * Implementar como Aplicación web · Ejecutar como: Yo · Acceso: Cualquier persona
  */
-const COLLS = ['candidatos','search','entrevistas','tareas','equipo','skills','estrategias','jds'];
+const COLLS = ['candidatos','search','entrevistas','tareas','equipo','skills','estrategias','jds','cvs'];
 
 function doGet(e) {
   return json_(loadAll_());
