@@ -713,14 +713,13 @@ function genText(j){
   const cta=book?(es?`¿Te gustaría que te cuente más? Puedes agendar una llamada corta conmigo aquí: ${book}`:`Would you like to hear more? You can book a quick call with me here: ${book}`):(es?'¿Te gustaría que te cuente más? Respóndeme por aquí y coordinamos una llamada corta.':'Would you like to hear more? Reply here and we can set up a quick call.');
   if(GEN.ch==='wa'){
     L.push(es?`¡Hola [Nombre]! 👋 Soy ${firma}, de Talent Acquisition en ${emp}.`:`Hi [Name]! 👋 I'm ${firma} from the Talent Acquisition team at ${emp}.`,'',
-      es?`Vi tu perfil y creo que encajas muy bien en una posición de ${b(j.titulo)}${j.pais?' para '+j.pais:''}.`:`I came across your profile and I think you'd be a great fit for ${/^[aeiou]/i.test(j.titulo||'')?'an':'a'} ${b(j.titulo)} role${j.pais?' in '+j.pais:''}.`);
+      (es?`Vi tu perfil y creo que encajas muy bien en una posición de ${b(j.titulo)}.`:`I came across your profile and I think you'd be a great fit for ${/^[aeiou]/i.test(j.titulo||'')?'an':'a'} ${b(j.titulo)} role.`)+roleInfo(j,es,true));
     if(pts.length)L.push('',...pts.map(x=>'• '+x));
     L.push('',cta)}
   else{
     if(GEN.ch==='mail')L.push((es?'Asunto: ':'Subject: ')+(es?`Oportunidad: ${j.titulo}${j.modalidad?' ('+j.modalidad+')':''}`:`Opportunity: ${j.titulo}${j.modalidad?' ('+j.modalidad+')':''}`),'');
     L.push(es?'Hola [Nombre], ¿cómo estás?':'Hi [Name], I hope you are doing well.','',
-      es?`Soy ${firma}, de Talent Acquisition en ${emp}. Estamos buscando un/a ${j.titulo}${j.pais?' para '+j.pais:''} y tu experiencia me llamó la atención.`:`I'm ${firma}, part of the Talent Acquisition team at ${emp}. We are looking for ${/^[aeiou]/i.test(j.titulo||'')?'an':'a'} ${j.titulo}${j.pais?' in '+j.pais:''} and your background caught my attention.`);
-    if(j.resumen)L.push('',j.resumen);
+      (es?`Soy ${firma}, de Talent Acquisition en ${emp}. Estamos buscando un/a ${j.titulo} y tu experiencia me llamó la atención.`:`I'm ${firma}, part of the Talent Acquisition team at ${emp}. We are looking for ${/^[aeiou]/i.test(j.titulo||'')?'an':'a'} ${j.titulo} and your background caught my attention.`)+roleInfo(j,es,false));
     if(pts.length)L.push('',...pts.map(x=>'• '+x));
     if(req.length)L.push('',es?'Lo que más valoramos:':'What we value most:',...req.slice(0,3).map(x=>'• '+x));
     L.push('',cta,'',es?`Saludos,\n${firma}\n${emp}`:`Best regards,\n${firma}\n${emp}`)}
@@ -845,7 +844,7 @@ async function handleCVFiles(files){
   if(!files.length){toast('Sube archivos PDF, Word (.docx) o .txt');return}
   cvBusy={n:files.length,i:0};render();let ok=0,fail=0;
   for(const f of files){cvBusy.i++;cvBusy.name=f.name;updateBusy();
-    try{const t=await fileText(f);const cv=classifyCV(parseCV(t,f.name));cv.id=uid();cv.fecha=today();cv.estado='Nuevo';
+    try{const t=await fileText(f);const cv=classifyCV(parseCV(t,f.name));cv.id=uid();cv._t=Date.now();cv.fecha=today();cv.estado='Nuevo';
       const dup=S.cvs.find(x=>(cv.email&&x.email===cv.email)||(norm(x.nombre)===norm(cv.nombre)&&x.archivo===cv.archivo));
       if(dup){Object.assign(dup,cv,{id:dup.id,estado:dup.estado,notas:dup.notas});CVFILES[dup.id]=URL.createObjectURL(f)}else{S.cvs.unshift(cv);CVFILES[cv.id]=URL.createObjectURL(f)}ok++}
     catch(e){console.error(e);fail++}}
@@ -892,7 +891,7 @@ function cvToCand(id){const c=S.cvs.find(x=>x.id===id);if(!c||inCand(c))return;
   const code=(c.vacante||'').split(',')[0].trim();const v=code&&allVacs().find(x=>x.code===code);
   S.candidatos.unshift({id:uid(),candidato:c.nombre,vacante:v?v.label:(code?code+' · '+c.perfil:c.perfil||''),telefono:c.telefono||'',email:c.email||'',fuente:'CV',stage:'Contactado',fechaStage:today(),proximoSeg:today(),
     proximaAccion:'Primer contacto',notas:`CV ${c.nivel} (${c.score}) · ${c.perfil}${c.ingles?' · Inglés '+c.ingles:''}${c.anios?' · '+c.anios+' años exp.':''}${c.ubicacion?' · '+c.ubicacion:''}`});
-  c.estado='En seguimiento';save();toast(`${c.nombre} pasó a Candidatos (para contactar hoy)`)}
+  c.estado='En seguimiento';c._t=Date.now();save();toast(`${c.nombre} pasó a Candidatos (para contactar hoy)`)}
 
 /* ============ CONTACTAR CANDIDATOS ============ */
 const CQ={ids:[],i:0,tpl:null,lang:'es',ch:'wa',reg:true,sent:0};
@@ -905,6 +904,15 @@ function candInfo(c){const code=codeOf(c.vacante);const v=allVacs().find(x=>x.co
   const puesto=(jd&&jd.titulo)||(v&&title(v.pos))||String(c.vacante||'').split('·').pop().trim()||'la posición';
   const ent=S.entrevistas.filter(e=>norm(e.nombre)===norm(c.candidato)&&e.fecha>=today()).sort((a,b)=>(a.fecha+a.hora).localeCompare(b.fecha+b.hora))[0];
   return{puesto,jd,v,ent,pais:(jd&&jd.pais)||(v&&v.country)||''}}
+function roleInfo(jd,es,wa){if(!jd)return'';
+  const first=String(jd.resumen||'').replace(/\s+/g,' ').split(/(?<=[.!?])\s+/)[0]||'';
+  const lines=String(jd.responsabilidades||'').split('\n').map(x=>x.trim()).filter(Boolean);
+  let rs=lines.filter(x=>/^[-•*·▪✓✔]|^\d+[.)]/.test(x)).map(x=>x.replace(/^([-•*·▪✓✔]|\d+[.)])\s*/,''));
+  if(!rs.length)rs=lines.join(' ').split(/(?<=[.!?])\s+/);
+  rs=rs.map(x=>x.replace(/\s+/g,' ').trim()).filter(x=>x.length>8).slice(0,3).map(x=>x.length>180?x.slice(0,177).replace(/\s+\S*$/,'')+'…':x);
+  let out='';if(first)out+='\n\n'+(first.length>260?first.slice(0,257).replace(/\s+\S*$/,'')+'…':first);
+  if(rs.length)out+='\n\n'+(es?(wa?'*En el rol vas a:*':'En el rol vas a:'):(wa?'*In this role you will:*':'In this role you will:'))+'\n'+rs.map(x=>'• '+x).join('\n');
+  return out}
 function contactText(c,key){
   const es=CQ.lang==='es',wa=CQ.ch==='wa',st=S.settings,I=candInfo(c);const firma=st.firma||'Mari',emp=st.empresa||'Solvo Global',book=st.bookingLink;
   const n=String(c.candidato||'').trim().split(/\s+/)[0]||(es?'':'there');const B=x=>wa?'*'+x+'*':x;const P=B(I.puesto);
@@ -912,7 +920,7 @@ function contactText(c,key){
   const cuando=I.ent?(es?`el ${fmtD(I.ent.fecha)}${I.ent.hora?' a las '+I.ent.hora:''}`:`on ${fmtD(I.ent.fecha)}${I.ent.hora?' at '+I.ent.hora:''}`):(es?'que tenemos programada':'that we have scheduled');
   const lim=fmtD(addBiz(2));
   const T=es?{
-    primer:[`Oportunidad: ${I.puesto}`,`¡Hola ${n}! 👋 Soy ${firma}, de Talent Acquisition en ${emp}.\n\nVi tu perfil y creo que encajas muy bien en una posición de ${P}${I.pais?' para '+I.pais:''}.${pts?'\n\n'+pts:''}\n\n${book?'¿Te gustaría que te cuente más? Puedes agendar una llamada corta conmigo aquí: '+book:'¿Te gustaría que te cuente más? Respóndeme por aquí y coordinamos una llamada corta.'}`],
+    primer:[`Oportunidad: ${I.puesto}`,`¡Hola ${n}! 👋 Soy ${firma}, de Talent Acquisition en ${emp}.\n\nVi tu perfil y creo que encajas muy bien en una posición de ${P}.${roleInfo(I.jd,true,wa)}${pts?'\n\n'+pts:''}\n\n${book?'¿Te gustaría que te cuente más? Puedes agendar una llamada corta conmigo aquí: '+book:'¿Te gustaría que te cuente más? Respóndeme por aquí y coordinamos una llamada corta.'}`],
     agendar:[`Agendemos tu entrevista: ${I.puesto}`,`¡Hola ${n}! 😊 Me gustaría agendar tu entrevista para ${P}.\n\n${book?'Elige el horario que mejor te quede aquí: '+book:'¿Qué día y hora te quedan bien esta semana?'}`],
     recordatorio:[`Recordatorio de entrevista: ${I.puesto}`,`¡Hola ${n}! Te recuerdo nuestra entrevista para ${P} ${cuando}. El link de Teams te llega a tu correo.\n\n¿Me confirmas tu asistencia? 🙌`],
     video:[`Siguiente paso: CV y video — ${I.puesto}`,`¡Hola ${n}! Gracias por tu tiempo 😊 Para seguir con tu proceso para ${P} necesito dos cosas:\n\n1. Tu CV actualizado (en inglés)\n2. Un video en inglés de mínimo 2 minutos, dirigido al hiring manager, contando tu experiencia y por qué te interesa el rol.\n\n¿Me los puedes enviar a más tardar el ${lim}?`],
@@ -921,7 +929,7 @@ function contactText(c,key){
     hm:[`Buenas noticias: ${I.puesto}`,`¡Hola ${n}! Buenas noticias 🎉 Tu perfil avanzó con el hiring manager para ${P}. Muy pronto te comparto los próximos pasos.`],
     descarte:[`Tu proceso para ${I.puesto}`,`Hola ${n}, gracias por tu interés y por tu tiempo en el proceso para ${P}. En esta ocasión decidimos avanzar con otros perfiles, pero me gustaría tenerte en cuenta para futuras vacantes. ¡Mucho éxito!`]
   }:{
-    primer:[`Opportunity: ${I.puesto}`,`Hi ${n}! 👋 I'm ${firma} from the Talent Acquisition team at ${emp}.\n\nI came across your profile and I think you'd be a great fit for ${/^[aeiou]/i.test(I.puesto)?'an':'a'} ${P} role${I.pais?' in '+I.pais:''}.${pts?'\n\n'+pts:''}\n\n${book?'Would you like to hear more? You can book a quick call with me here: '+book:'Would you like to hear more? Reply here and we can set up a quick call.'}`],
+    primer:[`Opportunity: ${I.puesto}`,`Hi ${n}! 👋 I'm ${firma} from the Talent Acquisition team at ${emp}.\n\nI came across your profile and I think you'd be a great fit for ${/^[aeiou]/i.test(I.puesto)?'an':'a'} ${P} role.${roleInfo(I.jd,false,wa)}${pts?'\n\n'+pts:''}\n\n${book?'Would you like to hear more? You can book a quick call with me here: '+book:'Would you like to hear more? Reply here and we can set up a quick call.'}`],
     agendar:[`Let's schedule your interview: ${I.puesto}`,`Hi ${n}! 😊 I'd like to schedule your interview for the ${P} role.\n\n${book?'Please pick the time that works best for you here: '+book:'Which day and time work for you this week?'}`],
     recordatorio:[`Interview reminder: ${I.puesto}`,`Hi ${n}! Just a reminder of our interview for the ${P} role ${cuando}. You'll get the Teams link by email.\n\nCould you please confirm you'll attend? 🙌`],
     video:[`Next step: resume and video — ${I.puesto}`,`Hi ${n}! Thanks for your time 😊 To move forward with your process for the ${P} role I need two things:\n\n1. Your updated resume (in English)\n2. A video in English of at least 2 minutes, addressed to the hiring manager, about your experience and why you're interested in the role.\n\nCould you send them by ${lim}?`],
@@ -954,7 +962,7 @@ function contactSend(how){
   if(how==='wa'){const tel=phoneDigits(c.telefono);window.open(`https://wa.me/${tel}?text=${encodeURIComponent(body)}`,'_blank','noopener')}
   else if(how==='mail'){location.href=`mailto:${encodeURIComponent(c.email||'')}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body)}`}
   else navigator.clipboard.writeText(body).then(()=>toast('Mensaje copiado'),()=>{$('#ctBody').select();toast('Selecciona y copia con Ctrl+C')});
-  if(CQ.reg){c.ultimoContacto=today();c.proximoSeg=addBiz(2);c.notas=`${fmtD(today())} · ${how==='mail'?'Correo':how==='wa'?'WhatsApp':'Mensaje copiado'} · ${tl}`+(c.notas?'\n'+c.notas:'');save(true)}
+  if(CQ.reg){c._t=Date.now();c.ultimoContacto=today();c.proximoSeg=addBiz(2);c.notas=`${fmtD(today())} · ${how==='mail'?'Correo':how==='wa'?'WhatsApp':'Mensaje copiado'} · ${tl}`+(c.notas?'\n'+c.notas:'');save(true)}
   CQ.sent=(CQ.sent||0)+1;
   if(CQ.ids.length>1&&CQ.i<CQ.ids.length-1){CQ.i++;setTimeout(contactModal,how==='copy'?600:250)}
   else if(how!=='copy'){setTimeout(()=>{closeModal();render();toast(CQ.ids.length>1?`Listo: ${CQ.sent} candidatos contactados`:'Contacto registrado')},300)}
@@ -989,7 +997,7 @@ after.candidatos=()=>{if(UI.candTab!=='seg'||UI.candView!=='kanban')return;
   $$('.kc').forEach(k=>{k.addEventListener('dragstart',e=>{k.classList.add('dragging');e.dataTransfer.setData('text/plain',k.dataset.id)});k.addEventListener('dragend',()=>k.classList.remove('dragging'))});
   $$('.col').forEach(col=>{col.addEventListener('dragover',e=>{e.preventDefault();col.classList.add('over')});col.addEventListener('dragleave',()=>col.classList.remove('over'));
     col.addEventListener('drop',e=>{e.preventDefault();col.classList.remove('over');const c=S.candidatos.find(x=>x.id===e.dataTransfer.getData('text/plain'));
-      if(c&&c.stage!==col.dataset.stage){c.stage=col.dataset.stage;c.fechaStage=today();save();render();toast(`${c.candidato} → ${c.stage}`)}})})};
+      if(c&&c.stage!==col.dataset.stage){c._t=Date.now();c.stage=col.dataset.stage;c.fechaStage=today();save();render();toast(`${c.candidato} → ${c.stage}`)}})})};
 
 VIEWS.candidatos=()=>{const T=UI.candTab;
   const btn={seg:['candidatos','+ Nuevo candidato'],search:['search','+ Agregar de search'],ent:['entrevistas','+ Nueva entrevista']}[T];
@@ -1105,8 +1113,9 @@ VIEWS.ajustes=()=>`<div class="top"><div><h1>Ajustes</h1><div class="sub">Tu nom
     <li>Menú <b>Extensiones › Apps Script</b>. Borra lo que haya y pega el código de abajo. Guarda.</li>
     <li><b>Implementar › Nueva implementación</b> › tipo <b>Aplicación web</b>. Ejecutar como: <b>Yo</b>. Quién tiene acceso: <b>Cualquier persona</b>. Implementar y autorizar.</li>
     <li>Copia la URL que termina en <b>/exec</b> y pégala aquí.</li></ol>
+   <p class="small muted">Puedes usar el hub en varios computadores con la misma URL: la información de todos se junta en tu Sheet, nada se borra al sincronizar.</p>
    <div class="toolbar"><input class="in grow" id="setUrl" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(S.settings.sheetsUrl)}"><button class="btn pri" data-act="connect">Conectar</button></div>
-   ${S.settings.sheetsUrl?`<div class="toolbar"><button class="btn sm" data-act="pushNow">Subir ahora</button><button class="btn sm" data-act="pullNow">Traer de Sheets</button><button class="btn sm danger" data-act="disconnect">Desconectar</button></div>`:''}
+   ${S.settings.sheetsUrl?`<div class="toolbar"><button class="btn sm" data-act="pushNow">Subir ahora</button><button class="btn sm" data-act="pullNow">Sincronizar (juntar con Sheets)</button><button class="btn sm" data-act="restoreLocal">Recuperar copia de este navegador</button><button class="btn sm danger" data-act="disconnect">Desconectar</button></div>`:''}
    <div class="card-h" style="margin:14px 0 6px"><h3 style="margin:0">Código de Apps Script</h3><button class="btn sm" data-act="copyGs">Copiar código</button></div>
    <pre class="code" id="gsCode">${esc(GS_CODE)}</pre></div>
  </div>`;
@@ -1149,7 +1158,7 @@ function saveForm(){
   const miss=sc.fields.find(f=>f.req&&!o[f.k]);if(miss){toast('Falta: '+miss.l);$('#f_'+miss.k).focus();return}
   if(id){const it=S[coll].find(x=>x.id===id);
     if(coll==='candidatos'&&it.stage!==o.stage&&o.fechaStage===it.fechaStage)o.fechaStage=today();
-    Object.assign(it,o)}else S[coll].unshift(Object.assign({id:uid()},o));
+    o._t=Date.now();Object.assign(it,o)}else S[coll].unshift(Object.assign({id:uid(),_t:Date.now()},o));
   save();closeModal();render();toast('Guardado')}
 
 /* ============ eventos ============ */
@@ -1165,9 +1174,9 @@ document.addEventListener('click',e=>{
     jd:()=>jdModal(id),
     cvView:()=>cvModal(id),
     cvToCand:()=>{cvToCand(id);if(!$('#modal').hidden)closeModal();render()},
-    cvDiscard:()=>{const c=S.cvs.find(x=>x.id===id);c.estado=c.estado==='Descartado'?'Nuevo':'Descartado';save();closeModal();render()},
-    cvDel:()=>{if(!confirm('¿Eliminar este CV de la lista?'))return;S.cvs=S.cvs.filter(x=>x.id!==id);save();closeModal();render()},
-    cvSaveNote:()=>{const c=S.cvs.find(x=>x.id===id);c.notas=$('#cvNotas').value.trim();save();toast('Nota guardada')},
+    cvDiscard:()=>{const c=S.cvs.find(x=>x.id===id);c._t=Date.now();c.estado=c.estado==='Descartado'?'Nuevo':'Descartado';save();closeModal();render()},
+    cvDel:()=>{if(!confirm('¿Eliminar este CV de la lista?'))return;(S.del=S.del||[]).push(id);S.cvs=S.cvs.filter(x=>x.id!==id);save();closeModal();render()},
+    cvSaveNote:()=>{const c=S.cvs.find(x=>x.id===id);c._t=Date.now();c.notas=$('#cvNotas').value.trim();save();toast('Nota guardada')},
     cvReclass:()=>{S.cvs.forEach(c=>{const keep={id:c.id,fecha:c.fecha,estado:c.estado,notas:c.notas};classifyCV(c);Object.assign(c,keep)});save();render();toast('CVs clasificados de nuevo con tus JDs y vacantes actuales')},
     ceipalJD:ceipalModal,
     ceipalRead:()=>ceipalPreview($('#ceipalTxt').value),
@@ -1185,10 +1194,10 @@ document.addEventListener('click',e=>{
     copyGen:()=>{navigator.clipboard.writeText($('#genOut').value).then(()=>toast('Texto copiado'),()=>{$('#genOut').select();toast('Selecciona y copia con Ctrl+C')})},
     edit:()=>openForm(a.dataset.c,id),
     saveForm,
-    del:()=>{if(!confirm('¿Eliminar este registro?'))return;S[editing.coll]=S[editing.coll].filter(x=>x.id!==editing.id);save();closeModal();render();toast('Eliminado')},
+    del:()=>{if(!confirm('¿Eliminar este registro?'))return;(S.del=S.del||[]).push(editing.id);S[editing.coll]=S[editing.coll].filter(x=>x.id!==editing.id);save();closeModal();render();toast('Eliminado')},
     vac:()=>vacModal(a.dataset.code),
     saveVacNote:()=>{const v=$('#vacNote').value.trim();if(v)S.notasVac[a.dataset.code]=v;else delete S.notasVac[a.dataset.code];save();closeModal();render();toast('Nota guardada')},
-    contacted:()=>{const c=S.candidatos.find(x=>x.id===id);c.ultimoContacto=today();c.proximoSeg=addBiz(2);save();render();toast(`${c.candidato}: próximo seguimiento ${fmtD(c.proximoSeg)}`)},
+    contacted:()=>{const c=S.candidatos.find(x=>x.id===id);c._t=Date.now();c.ultimoContacto=today();c.proximoSeg=addBiz(2);save();render();toast(`${c.candidato}: próximo seguimiento ${fmtD(c.proximoSeg)}`)},
     toCand:()=>{const s=S.search.find(x=>x.id===id);const v=allVacs().find(x=>x.code===codeOf(s.jobCode));
       if(S.candidatos.some(c=>norm(c.candidato)===norm(s.nombre))){toast('Ya está en tu seguimiento');return}
       S.candidatos.unshift({id:uid(),candidato:s.nombre.trim(),vacante:v?v.label:s.jobCode,fuente:'Search',stage:'Contactado',fechaStage:today(),proximoSeg:addBiz(1),notas:[s.location,s.nota].filter(Boolean).join(' · ')});
@@ -1206,7 +1215,7 @@ document.addEventListener('click',e=>{
     backup:()=>{const b=new Blob([JSON.stringify(S,null,1)],{type:'application/json'});const l=document.createElement('a');l.href=URL.createObjectURL(b);l.download='mari-hub-respaldo-'+today()+'.json';l.click()},
     restore:()=>$('#fileBackup').click(),
     wipe:()=>{if(!confirm('¿Borrar toda la información de este navegador?'))return;const url=S.settings.sheetsUrl;S=DEFAULT();S.settings.sheetsUrl='';try{localStorage.removeItem(KEY)}catch(e){}render();toast('Listo, todo borrado de este navegador')},
-    connect:connectSheets,pushNow:()=>push(true),pullNow:()=>pull(true),
+    connect:connectSheets,pushNow:()=>push(true),pullNow:()=>pull(true),restoreLocal:restoreLocalBackup,
     disconnect:()=>{S.settings.sheetsUrl='';save();setSync();render()},
     copyGs:()=>{navigator.clipboard.writeText(GS_CODE).then(()=>toast('Código copiado'),()=>toast('Selecciona el código y cópialo'))}
   };
@@ -1222,7 +1231,7 @@ document.addEventListener('change',e=>{const t=e.target;
   else if(t.dataset.chk){UI[t.dataset.chk]=t.checked;render()}
   else if(t.dataset.pri!=null){S.prioridades[+t.dataset.pri]=t.value.trim();save(true)}
   else if(t.dataset.rut){S.rutina.done[t.dataset.rut]=t.checked;t.closest('.check').classList.toggle('done',t.checked);save(true)}
-  else if(t.dataset.done){const x=S.tareas.find(z=>z.id===t.dataset.done);x.estado=t.checked?'Hecha':'Pendiente';save();render()}
+  else if(t.dataset.done){const x=S.tareas.find(z=>z.id===t.dataset.done);x._t=Date.now();x.estado=t.checked?'Hecha':'Pendiente';save();render()}
   else if(t.dataset['1on1']){const m=S.equipo.find(z=>z.id===t.dataset['1on1']);m.notas=t.value.trim();save(true);toast('Nota del 1:1 guardada')}
 });
 
@@ -1289,22 +1298,47 @@ function setSync(k,tip){const M={off:['','Solo en este navegador'],wait:['wait',
   $$('.sync').forEach(p=>{p.className='sync '+syncState.cls;p.title=syncState.tip;p.lastChild.textContent=syncState.txt})}
 let pushT;
 function queuePush(){if(!S.settings.sheetsUrl)return;setSync('wait');clearTimeout(pushT);pushT=setTimeout(()=>push(),2500)}
-async function push(manual){if(!S.settings.sheetsUrl)return;clearTimeout(pushT);setSync('saving');
-  try{const r=await fetch(S.settings.sheetsUrl,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'save',data:S})});
+/* ---- sincronización: junta los datos de todos tus computadores, nunca borra ---- */
+const MERGE_ARR=['candidatos','search','entrevistas','tareas','skills','estrategias','jds','cvs'];
+function backupLocal(){try{const k='mariHubTA.backups';const arr=JSON.parse(localStorage.getItem(k)||'[]');arr.unshift({at:new Date().toISOString(),data:S});localStorage.setItem(k,JSON.stringify(arr.slice(0,3)))}catch(e){}}
+function mergeState(local,remote){
+  remote=withDefaults(JSON.parse(JSON.stringify(remote||{})));local=withDefaults(JSON.parse(JSON.stringify(local||{})));
+  const del=new Set([].concat(local.del||[],remote.del||[]));const out=remote;out.del=[...del].slice(-2000);let localAdds=false;
+  MERGE_ARR.forEach(k=>{const m=new Map();(remote[k]||[]).forEach(x=>{if(x&&x.id)m.set(x.id,x)});
+    (local[k]||[]).forEach(x=>{if(!x||!x.id)return;const r=m.get(x.id);if(!r){m.set(x.id,x);if(!del.has(x.id))localAdds=true}else if(num(x._t)>num(r._t)){m.set(x.id,x);localAdds=true}});
+    out[k]=[...m.values()].filter(x=>!del.has(x.id))});
+  const named=a=>(a||[]).some(m=>m.apodo||m.nombreData);
+  out.equipo=num(local.savedAt)>num(remote.savedAt)&&named(local.equipo)?local.equipo:(named(remote.equipo)?remote.equipo:local.equipo);
+  out.notasVac=Object.assign({},local.notasVac,remote.notasVac);
+  if(String(local.data&&local.data.loadedAt||'')>String(remote.data&&remote.data.loadedAt||'')){out.data=local.data;localAdds=true}
+  if(num(local.savedAt)>num(remote.savedAt)){out.prioridades=local.prioridades;out.rutina=local.rutina;
+    const keep=out.settings.sheetsUrl;out.settings=Object.assign({},remote.settings,local.settings)}
+  out.settings.sheetsUrl=local.settings.sheetsUrl||remote.settings.sheetsUrl;
+  out.savedAt=Math.max(num(local.savedAt),num(remote.savedAt));
+  return{state:out,localAdds}}
+async function fetchRemote(url){const r=await fetch(url+'?action=load&t='+Date.now());const j=await r.json();if(!j.ok)throw new Error(j.error||'error');return j.data}
+let pushing=false;
+async function push(manual){if(!S.settings.sheetsUrl)return;clearTimeout(pushT);if(pushing){pushT=setTimeout(()=>push(manual),1500);return}pushing=true;setSync('saving');
+  try{const url=S.settings.sheetsUrl;const remote=await fetchRemote(url);
+    if(remote){const {state}=mergeState(S,remote);const before=JSON.stringify(S);S=state;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}if(JSON.stringify(S)!==before){_vc=null;render()}}
+    S.savedAt=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'save',data:S})});
     const j=await r.json();if(!j.ok)throw new Error(j.error||'error');setSync('ok','Último guardado: '+new Date().toLocaleTimeString('es-CO'));if(manual)toast('Subido a Google Sheets')}
-  catch(e){console.error(e);setSync('err',String(e.message||e));if(manual)toast('No pude guardar en Sheets: revisa la URL y el acceso "Cualquier persona"')}}
-async function pull(manual,force){if(!S.settings.sheetsUrl)return false;setSync('load');
-  try{const r=await fetch(S.settings.sheetsUrl+'?action=load&t='+Date.now());const j=await r.json();if(!j.ok)throw new Error(j.error||'error');
-    const remote=j.data;
-    if(remote&&(force||num(remote.savedAt)>S.savedAt||manual)){const url=S.settings.sheetsUrl;S=withDefaults(remote);S.settings.sheetsUrl=url;_vc=null;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}setSync('ok');render();if(manual)toast('Traído de Google Sheets');return true}
-    setSync('ok');if(manual)toast(remote?'Ya estás al día':'Tu Sheet está vacío');return!!remote}
+  catch(e){console.error(e);setSync('err',String(e.message||e));if(manual)toast('No pude guardar en Sheets: revisa la URL y el acceso "Cualquier persona"')}
+  finally{pushing=false}}
+async function pull(manual){if(!S.settings.sheetsUrl)return false;setSync('load');
+  try{const remote=await fetchRemote(S.settings.sheetsUrl);
+    if(!remote){setSync('ok');if(manual)toast('Tu Sheet está vacío: subo lo de aquí');await push(manual);return false}
+    backupLocal();const {state,localAdds}=mergeState(S,remote);S=state;_vc=null;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+    setSync('ok');render();if(manual)toast('Listo: junté lo de tu Sheet con lo de este computador');
+    if(localAdds)await push();return true}
   catch(e){console.error(e);setSync('err',String(e.message||e));if(manual)toast('No pude leer tu Sheet');return false}}
 async function connectSheets(){const url=$('#setUrl').value.trim();if(!/^https:\/\/script\.google\.com\/.+\/exec/.test(url)){toast('La URL debe ser de script.google.com y terminar en /exec');return}
-  S.settings.sheetsUrl=url;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}setSync('load');
-  try{const r=await fetch(url+'?action=load&t='+Date.now());const j=await r.json();if(!j.ok)throw new Error(j.error);
-    if(j.data&&num(j.data.savedAt)>0){if(confirm('Tu Sheet ya tiene información. ¿La traigo y reemplazo lo de este navegador?\n\nAceptar = traer de Sheets · Cancelar = subir lo de aquí')){await pull(false,true);toast('Conectado y sincronizado');return}}
-    await push();render();toast('¡Conectado! Todo se guarda en tu Sheet')}
-  catch(e){setSync('err');render();toast('No pude conectar. Revisa que la implementación tenga acceso "Cualquier persona"')}}
+  S.settings.sheetsUrl=url;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+  const ok=await pull(false);if(ok!==false||syncState.cls==='ok'){render();toast('¡Conectado! Junté lo de este computador con tu Sheet')}else{render();toast('No pude conectar. Revisa que la implementación tenga acceso "Cualquier persona"')}}
+function restoreLocalBackup(){try{const arr=JSON.parse(localStorage.getItem('mariHubTA.backups')||'[]');if(!arr.length){toast('No hay copias de seguridad en este navegador');return}
+  const b=arr[0];if(!confirm(`¿Recuperar la copia de este navegador del ${new Date(b.at).toLocaleString('es-CO')}? Se junta con lo que tienes ahora (no borra nada).`))return;
+  const {state}=mergeState(b.data,S);S=state;save();render();toast('Copia recuperada y juntada')}catch(e){toast('No pude leer la copia')}}
 
 const GS_CODE=`/**
  * Mari Hub TA · guarda y lee la información de la página en este Google Sheet.
